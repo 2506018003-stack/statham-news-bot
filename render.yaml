@@ -10,9 +10,13 @@ services:
         sync: false
       - key: CHAT_ID
         value: "-1003867089540"
+      - key: NEWS_TOPIC_ID
+        value: "9505"
       - key: CRYPTOPANIC_TOKEN
         sync: false
-      - key: REDIS_URL
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_TOKEN
         sync: false
       - key: PYTHON_VERSION
         value: "3.11"
