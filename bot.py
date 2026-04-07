@@ -15,26 +15,46 @@ load_dotenv()
 app = Flask(__name__)
 
 # ── REDIS КЭШ ────────────────────────────────────────────────────
+# Поддержка: Upstash Redis (TLS) или Upstash REST API
 REDIS_URL = os.environ.get("REDIS_URL", "")
+UPSTASH_REST_URL = os.environ.get("UPSTASH_REDIS_REST_URL", "")
+UPSTASH_REST_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN", "")
 _redis_client = None
 
 def get_redis():
     global _redis_client
-    if _redis_client is None and REDIS_URL:
+    if _redis_client is not None:
+        return _redis_client
+    
+    # Пробуем обычный Redis с TLS (Upstash Redis)
+    if REDIS_URL:
         try:
-            # Upstash Redis требует TLS
-            _redis_client = redis.from_url(
+            import redis as redis_lib
+            _redis_client = redis_lib.from_url(
                 REDIS_URL, 
                 decode_responses=True,
-                ssl_cert_reqs=None  # Обязательно для Upstash
+                ssl_cert_reqs=None,
+                socket_connect_timeout=5
             )
-            # Тестируем соединение
             _redis_client.ping()
-            _write_log_file("REDIS_OK | Подключено к Upstash Redis")
+            _write_log_file("REDIS_OK | Подключено к Upstash Redis (TLS)")
+            return _redis_client
         except Exception as e:
-            _write_log_file(f"REDIS_ERR | {e}")
-            _redis_client = None
-    return _redis_client
+            _write_log_file(f"REDIS_TLS_ERR | {e}")
+    
+    # Пробуем Upstash REST API
+    if UPSTASH_REST_URL and UPSTASH_REST_TOKEN:
+        try:
+            from upstash_redis import Redis as UpstashRedis
+            _redis_client = UpstashRedis(url=UPSTASH_REST_URL, token=UPSTASH_REST_TOKEN)
+            _redis_client.ping()
+            _write_log_file("REDIS_OK | Подключено к Upstash REST API")
+            return _redis_client
+        except Exception as e:
+            _write_log_file(f"UPSTASH_REST_ERR | {e}")
+    
+    _redis_client = None
+    return None
 
 def redis_get(key: str, default=None):
     try:
