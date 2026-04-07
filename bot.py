@@ -45,8 +45,8 @@ def get_redis():
     # Пробуем Upstash REST API
     if UPSTASH_REST_URL and UPSTASH_REST_TOKEN:
         try:
-            from upstash_redis import Redis as UpstashRedis
-            _redis_client = UpstashRedis(url=UPSTASH_REST_URL, token=UPSTASH_REST_TOKEN)
+            import upstash_redis
+            _redis_client = upstash_redis.Redis(url=UPSTASH_REST_URL, token=UPSTASH_REST_TOKEN)
             _redis_client.ping()
             _write_log_file("REDIS_OK | Подключено к Upstash REST API")
             return _redis_client
