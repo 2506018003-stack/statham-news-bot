@@ -14,11 +14,66 @@ load_dotenv()
 
 app = Flask(__name__)
 
-# ── REDIS КЭШ ────────────────────────────────────────────────────
-# Поддержка: Upstash Redis (TLS) или Upstash REST API
-REDIS_URL = os.environ.get("REDIS_URL", "")
-UPSTASH_REST_URL = os.environ.get("UPSTASH_REDIS_REST_URL", "")
-UPSTASH_REST_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN", "")
+# ── REDIS КЭШ (Upstash REST API через HTTP) ────────────────────────
+UPSTASH_REDIS_REST_URL = os.environ.get("UPSTASH_REDIS_REST_URL", "")
+UPSTASH_REDIS_REST_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN", "")
+
+class UpstashRedisClient:
+    """Простой клиент для Upstash Redis REST API через HTTP."""
+    def __init__(self, url: str, token: str):
+        self.url = url.rstrip('/')
+        self.token = token
+        self.headers = {"Authorization": f"Bearer {token}"}
+    
+    def _request(self, command: list):
+        """Отправляет команду Redis через REST API."""
+        try:
+            resp = requests.post(
+                f"{self.url}/pipeline",
+                headers=self.headers,
+                json=command,
+                timeout=5
+            )
+            if resp.status_code == 200:
+                result = resp.json()
+                if isinstance(result, list) and len(result) > 0:
+                    return result[0].get("result")
+            return None
+        except Exception as e:
+            _write_log_file(f"UPSTASH_HTTP_ERR | {e}")
+            return None
+    
+    def get(self, key: str):
+        """GET key"""
+        result = self._request(["GET", key])
+        return result
+    
+    def set(self, key: str, value: str, ex: int = None):
+        """SET key value [EX seconds]"""
+        if ex:
+            return self._request(["SET", key, value, "EX", str(ex)])
+        return self._request(["SET", key, value])
+    
+    def delete(self, key: str):
+        """DEL key"""
+        return self._request(["DEL", key])
+    
+    def lpush(self, key: str, value: str):
+        """LPUSH key value"""
+        return self._request(["LPUSH", key, value])
+    
+    def ltrim(self, key: str, start: int, stop: int):
+        """LTRIM key start stop"""
+        return self._request(["LTRIM", key, str(start), str(stop)])
+    
+    def lrange(self, key: str, start: int, stop: int):
+        """LRANGE key start stop"""
+        return self._request(["LRANGE", key, str(start), str(stop)])
+    
+    def ping(self):
+        """PING"""
+        return self._request(["PING"])
+
 _redis_client = None
 
 def get_redis():
@@ -26,32 +81,15 @@ def get_redis():
     if _redis_client is not None:
         return _redis_client
     
-    # Пробуем обычный Redis с TLS (Upstash Redis)
-    if REDIS_URL:
+    if UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN:
         try:
-            import redis as redis_lib
-            _redis_client = redis_lib.from_url(
-                REDIS_URL, 
-                decode_responses=True,
-                ssl_cert_reqs=None,
-                socket_connect_timeout=5
-            )
-            _redis_client.ping()
-            _write_log_file("REDIS_OK | Подключено к Upstash Redis (TLS)")
-            return _redis_client
+            _redis_client = UpstashRedisClient(UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN)
+            # Тестируем соединение
+            if _redis_client.ping():
+                _write_log_file("REDIS_OK | Подключено к Upstash REST API (HTTP)")
+                return _redis_client
         except Exception as e:
-            _write_log_file(f"REDIS_TLS_ERR | {e}")
-    
-    # Пробуем Upstash REST API
-    if UPSTASH_REST_URL and UPSTASH_REST_TOKEN:
-        try:
-            import upstash_redis
-            _redis_client = upstash_redis.Redis(url=UPSTASH_REST_URL, token=UPSTASH_REST_TOKEN)
-            _redis_client.ping()
-            _write_log_file("REDIS_OK | Подключено к Upstash REST API")
-            return _redis_client
-        except Exception as e:
-            _write_log_file(f"UPSTASH_REST_ERR | {e}")
+            _write_log_file(f"UPSTASH_INIT_ERR | {e}")
     
     _redis_client = None
     return None
