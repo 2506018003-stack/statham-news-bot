@@ -8,11 +8,46 @@ from flask import Flask, request, jsonify
 import requests
 import telebot
 import feedparser
+import redis
 from dotenv import load_dotenv
 
 load_dotenv()
 
 app = Flask(__name__)
+
+# ── REDIS КЭШ (для Render Free Tier - файлы сбрасываются!) ───────
+REDIS_URL = os.environ.get("REDIS_URL", "")
+_redis_client = None
+
+def get_redis():
+    global _redis_client
+    if _redis_client is None and REDIS_URL:
+        try:
+            _redis_client = redis.from_url(REDIS_URL, decode_responses=True)
+        except Exception as e:
+            write_debug_log(f"REDIS_ERR | {e}")
+    return _redis_client
+
+def redis_get(key: str, default=None):
+    try:
+        r = get_redis()
+        if r:
+            val = r.get(key)
+            if val:
+                return json.loads(val)
+    except Exception as e:
+        write_debug_log(f"REDIS_GET_ERR | {e}")
+    return default
+
+def redis_set(key: str, data, ex=2592000):  # 30 days TTL
+    try:
+        r = get_redis()
+        if r:
+            r.set(key, json.dumps(data), ex=ex)
+            return True
+    except Exception as e:
+        write_debug_log(f"REDIS_SET_ERR | {e}")
+    return False
 
 # ── КОНФИГУРАЦИЯ ─────────────────────────────────────────────────
 _raw_token = os.environ.get("BOT_TOKEN_NEWS", "")
@@ -25,7 +60,6 @@ NEWS_TOPIC_ID = "9505"
 
 # Render free tier - используем текущую директорию (без диска)
 BASE_DIR      = os.path.dirname(os.path.abspath(__file__))
-RSS_SEEN_FILE = os.path.join(BASE_DIR, "rss_seen.json")
 os.makedirs(BASE_DIR, exist_ok=True)
 
 bot = telebot.TeleBot(TOKEN, threaded=False)
@@ -34,7 +68,6 @@ bot = telebot.TeleBot(TOKEN, threaded=False)
 CRYPTOPANIC_TOKEN = os.environ.get("CRYPTOPANIC_TOKEN", "")
 CRYPTOPANIC_URL   = "https://cryptopanic.com/api/developer/v2/posts/"
 RSS_MAX_PER_RUN   = 3
-CP_RATELIMIT_FILE = os.path.join(BASE_DIR, "cp_ratelimit.json")
 
 _cp_lock        = threading.Lock()
 _cp_last_req_ts = 0.0
@@ -46,10 +79,11 @@ TWITTER_USERS = [
     "1437032895216824322",  # @wu_blockchain
     "1333467482",           # @loomdart
     "1467183928872722438",  # @whale_alert
-    "1307386582665342976",  # @ tier10k
+    "1307386582665342976",  # @tier10k
+    "25073877",             # @realDonaldTrump (Трамп)
+    "44196397",             # @elonmusk (Илон Маск)
+    "119248032",            # @federalreserve (ФРС)
 ]
-TWITTER_SEEN_FILE = os.path.join(BASE_DIR, "twitter_seen.json")
-TWITTER_RATELIMIT_FILE = os.path.join(BASE_DIR, "twitter_ratelimit.json")
 _twitter_lock = threading.Lock()
 _twitter_last_req_ts = 0.0
 TWITTER_MIN_INTERVAL = 120.0
@@ -61,7 +95,6 @@ TELEGRAM_CHANNELS = [
     "-1002208172141",  # Канал 3
     "-1002196771546",  # Канал 4
 ]
-TELEGRAM_SEEN_FILE = os.path.join(BASE_DIR, "telegram_seen.json")
 _telegram_lock = threading.Lock()
 _tg_last_check_ts = 0.0
 TG_MIN_INTERVAL = 300.0  # 5 минут
@@ -167,33 +200,30 @@ def write_debug_log(entry: str):
     except Exception:
         pass
 
-# ── JSON ХЕЛПЕРЫ (без fcntl для Render) ──────────────────────────
-def load_json(path: str, default):
-    if not os.path.exists(path):
-        return default
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception as e:
-        write_debug_log(f"LOAD_JSON_ERR | {path} | {e}")
-        return default
+# ── REDIS ХЕЛПЕРЫ (замена файловому кэшу) ────────────────────────
+def load_json(key: str, default):
+    return redis_get(key, default)
 
-def save_json(path: str, data):
-    try:
-        tmp_path = path + ".tmp"
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp_path, path)
-    except Exception as e:
-        write_debug_log(f"SAVE_JSON_ERR | {path} | {e}")
+def save_json(key: str, data):
+    redis_set(key, data)
 
 def load_rss_seen():
-    return load_json(RSS_SEEN_FILE, {})
+    return redis_get("rss_seen", {})
 
 def save_rss_seen(d):
-    save_json(RSS_SEEN_FILE, d)
+    redis_set("rss_seen", d)
+
+def _cp_get_retry_after() -> float:
+    return redis_get("cp_retry_after", 0.0)
+
+def _cp_set_retry_after(until_ts: float):
+    redis_set("cp_retry_after", until_ts, ex=3600)
+
+def _twitter_get_retry_after() -> float:
+    return redis_get("twitter_retry_after", 0.0)
+
+def _twitter_set_retry_after(until_ts: float):
+    redis_set("twitter_retry_after", until_ts, ex=3600)
 
 # ── TELEGRAM SEND ─────────────────────────────────────────────────
 def send_tg(text: str, chat_id=None, thread_id=None) -> dict:
@@ -390,8 +420,8 @@ def cmd_news_status(message):
         _reply(message, "❌ Только для администраторов")
         return
     seen = load_rss_seen()
-    tw_seen = load_json(TWITTER_SEEN_FILE, [])
-    tg_seen = load_json(TELEGRAM_SEEN_FILE, [])
+    tw_seen = redis_get("twitter_seen", [])
+    tg_seen = redis_get("telegram_seen", [])
     tok_ok = "✅ Установлен" if CRYPTOPANIC_TOKEN else "⚠️ Не установлен"
     tw_ok = "✅ Установлен" if TWITTER_BEARER_TOKEN else "⚠️ Не установлен"
     rss_list = "\n".join(f"  {s['flag']} {s['name']}" for s in RSS_SOURCES)
@@ -420,27 +450,11 @@ def cmd_clear_cache(message):
         _reply(message, "❌ Только для администраторов")
         return
     save_rss_seen({})
-    save_json(TWITTER_SEEN_FILE, [])
-    save_json(TELEGRAM_SEEN_FILE, [])
+    redis_set("twitter_seen", [])
+    redis_set("telegram_seen", [])
     _reply(message, "✅ Кэш очищен. Следующий запуск пришлёт свежие новости.")
 
 # ── CRYPTOPANIC NEWS ──────────────────────────────────────────────
-def _cp_get_retry_after() -> float:
-    try:
-        if os.path.exists(CP_RATELIMIT_FILE):
-            with open(CP_RATELIMIT_FILE, "r") as f:
-                return float(json.load(f).get("retry_after", 0))
-    except Exception:
-        pass
-    return 0.0
-
-def _cp_set_retry_after(until_ts: float):
-    try:
-        with open(CP_RATELIMIT_FILE, "w") as f:
-            json.dump({"retry_after": until_ts}, f)
-    except Exception:
-        pass
-
 def _check_news():
     global _cp_last_req_ts
     with _cp_lock:
@@ -581,9 +595,8 @@ def _check_twitter():
             write_debug_log(f"TWITTER | ждём {wait:.0f}s (min-interval)")
             time.sleep(wait)
         _twitter_last_req_ts = time.time()
-        seen = load_json(TWITTER_SEEN_FILE, [])
+        seen = redis_get("twitter_seen", [])
         now_ts = int(time.time())
-        seen = [sid for sid in seen if isinstance(seen, list)]
         new_seen = list(seen)
         sent_count = 0
         try:
@@ -668,7 +681,7 @@ def _check_twitter():
         except Exception as e:
             write_debug_log(f"TWITTER_ERR | {e}")
         if new_seen != seen:
-            save_json(TWITTER_SEEN_FILE, new_seen[-500:])
+            redis_set("twitter_seen", new_seen[-500:])
         write_debug_log(f"TWITTER | done | sent={sent_count} | cached={len(new_seen)}")
 
 # ── TELEGRAM CHANNELS PARSER ─────────────────────────────────────
@@ -684,9 +697,8 @@ def _check_telegram_channels():
             write_debug_log("TELEGRAM | пропуск: слишком часто")
             return
         _tg_last_check_ts = now
-        seen = load_json(TELEGRAM_SEEN_FILE, [])
+        seen = redis_get("telegram_seen", [])
         now_ts = int(time.time())
-        seen = [s for s in seen if isinstance(s, str)]
         new_seen = list(seen)
         sent_count = 0
         for channel_id in TELEGRAM_CHANNELS:
@@ -741,7 +753,7 @@ def _check_telegram_channels():
             except Exception as e:
                 write_debug_log(f"TG_CHANNEL_ERR | {channel_id} | {e}")
         if new_seen != seen:
-            save_json(TELEGRAM_SEEN_FILE, new_seen[-500:])
+            redis_set("telegram_seen", new_seen[-500:])
         write_debug_log(f"TELEGRAM | done | sent={sent_count} | cached={len(new_seen)}")
 
 # ── RSS-ПАРСЕР (через feedparser напрямую) ────────────────────────
