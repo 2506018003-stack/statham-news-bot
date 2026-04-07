@@ -785,8 +785,6 @@ def _check_rss_source(source: dict, seen: dict, now_ts: int) -> tuple:
             parts.append(f"<b>{title_out}</b>")
             if not is_ru and title_out != title:
                 parts.append(f"<i>{title}</i>")
-            if url:
-                parts.append(f"🔗 {url}")
             send_news("\n".join(parts))
             new_seen[cache_key] = now_ts
             sent_count += 1
