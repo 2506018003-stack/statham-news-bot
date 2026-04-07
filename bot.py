@@ -1,9 +1,8 @@
 """
-Telegram Bot — Render.com: Новости из CryptoPanic, Twitter, Telegram
+Telegram Bot — Render.com: Новости из CryptoPanic, Nitter RSS, Telegram (RSSHub)
 """
 from __future__ import annotations
 import json, os, datetime, threading, time, hashlib, re
-from urllib.parse import quote as url_quote
 from flask import Flask, request, jsonify
 import requests
 import telebot
@@ -15,7 +14,7 @@ load_dotenv()
 
 app = Flask(__name__)
 
-# ── REDIS КЭШ (для Render Free Tier - файлы сбрасываются!) ───────
+# ── REDIS КЭШ ────────────────────────────────────────────────────
 REDIS_URL = os.environ.get("REDIS_URL", "")
 _redis_client = None
 
@@ -25,7 +24,7 @@ def get_redis():
         try:
             _redis_client = redis.from_url(REDIS_URL, decode_responses=True)
         except Exception as e:
-            write_debug_log(f"REDIS_ERR | {e}")
+            _write_log_file(f"REDIS_ERR | {e}")
     return _redis_client
 
 def redis_get(key: str, default=None):
@@ -36,30 +35,29 @@ def redis_get(key: str, default=None):
             if val:
                 return json.loads(val)
     except Exception as e:
-        write_debug_log(f"REDIS_GET_ERR | {e}")
+        _write_log_file(f"REDIS_GET_ERR | {e}")
     return default
 
-def redis_set(key: str, data, ex=2592000):  # 30 days TTL
+def redis_set(key: str, data, ex=2592000):
     try:
         r = get_redis()
         if r:
             r.set(key, json.dumps(data), ex=ex)
             return True
     except Exception as e:
-        write_debug_log(f"REDIS_SET_ERR | {e}")
+        _write_log_file(f"REDIS_SET_ERR | {e}")
     return False
 
 # ── КОНФИГУРАЦИЯ ─────────────────────────────────────────────────
 _raw_token = os.environ.get("BOT_TOKEN_NEWS", "")
 if not _raw_token or ":" not in _raw_token:
     raise RuntimeError(f"BOT_TOKEN_NEWS неверный или не установлен: {_raw_token!r}")
-TOKEN     = _raw_token
-CHAT_ID   = os.environ.get("CHAT_ID", "-1003867089540")
+TOKEN   = _raw_token
+CHAT_ID = os.environ.get("CHAT_ID", "-1003867089540")
 
-NEWS_TOPIC_ID = "9505"
+NEWS_TOPIC_ID = os.environ.get("NEWS_TOPIC_ID", "9505")
 
-# Render free tier - используем текущую директорию (без диска)
-BASE_DIR      = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 os.makedirs(BASE_DIR, exist_ok=True)
 
 bot = telebot.TeleBot(TOKEN, threaded=False)
@@ -73,31 +71,66 @@ _cp_lock        = threading.Lock()
 _cp_last_req_ts = 0.0
 CP_MIN_INTERVAL = 60.0
 
-# ── TWITTER ──────────────────────────────────────────────────────
-TWITTER_BEARER_TOKEN = os.environ.get("TWITTER_BEARER_TOKEN", "")
-TWITTER_USERS = [
-    "1437032895216824322",  # @wu_blockchain
-    "1333467482",           # @loomdart
-    "1467183928872722438",  # @whale_alert
-    "1307386582665342976",  # @tier10k
-    "25073877",             # @realDonaldTrump (Трамп)
-    "44196397",             # @elonmusk (Илон Маск)
-    "119248032",            # @federalreserve (ФРС)
+# ── NITTER (бесплатная замена Twitter API) ───────────────────────
+# Nitter — open-source фронтенд Twitter с RSS, без токенов и оплаты.
+# Если один инстанс недоступен — бот автоматически пробует следующий.
+NITTER_INSTANCES = [
+    "nitter.privacydev.net",
+    "nitter.poast.org",
+    "nitter.1d4.us",
+    "nitter.kavin.rocks",
+    "nitter.cz",
 ]
-_twitter_lock = threading.Lock()
-_twitter_last_req_ts = 0.0
-TWITTER_MIN_INTERVAL = 120.0
 
-# ── TELEGRAM ИСТОЧНИКИ ───────────────────────────────────────────
-TELEGRAM_CHANNELS = [
-    "-1001754252633",  # Канал 1
-    "-1001967505770",  # Канал 2
-    "-1002208172141",  # Канал 3
-    "-1002196771546",  # Канал 4
+# Аккаунты для мониторинга (username без @)
+NITTER_ACCOUNTS = [
+    {"name": "Wu Blockchain",   "username": "Wu_Blockchain",   "flag": "🐋"},
+    {"name": "Whale Alert",     "username": "whale_alert",      "flag": "🚨"},
+    {"name": "Tier10k",         "username": "tier10k",          "flag": "📊"},
+    {"name": "Trump",           "username": "realDonaldTrump",  "flag": "🇺🇸"},
+    {"name": "Elon Musk",       "username": "elonmusk",         "flag": "🚀"},
+    {"name": "Federal Reserve", "username": "federalreserve",   "flag": "🏦"},
 ]
-_telegram_lock = threading.Lock()
-_tg_last_check_ts = 0.0
-TG_MIN_INTERVAL = 300.0  # 5 минут
+
+_nitter_rss_lock = threading.Lock()
+
+def _get_nitter_instance() -> str | None:
+    """Ищет рабочий Nitter-инстанс, кэширует в Redis на 30 мин."""
+    cached = redis_get("nitter_instance_cache")
+    if cached:
+        return cached
+    for inst in NITTER_INSTANCES:
+        try:
+            r = requests.get(f"https://{inst}/Wu_Blockchain/rss", timeout=8)
+            if r.status_code == 200 and "<rss" in r.text[:300]:
+                redis_set("nitter_instance_cache", inst, ex=1800)
+                write_debug_log(f"NITTER | рабочий инстанс: {inst}")
+                return inst
+        except Exception:
+            continue
+    write_debug_log("NITTER | все инстансы недоступны")
+    return None
+
+# ── TELEGRAM КАНАЛЫ ЧЕРЕЗ RSSHUB ────────────────────────────────
+# Для чтения ПУБЛИЧНЫХ чужих каналов используем RSSHub.
+# Бот НЕ нужно добавлять в эти каналы — нужен только публичный username.
+#
+# Как найти username канала:
+#   Telegram → открой канал → три точки → Поделиться → в ссылке t.me/XXXX
+#   XXXX и есть username (только для публичных каналов)
+#
+# ЗАПОЛНИ ЭТОТ СПИСОК:
+TELEGRAM_RSS_CHANNELS = [
+    # {"name": "Durov",       "username": "durov",       "flag": "✈️"},
+    # {"name": "Cbonds News", "username": "cbondsnews",  "flag": "📈"},
+    # {"name": "RBK Крипто",  "username": "rbc_crypto",  "flag": "💹"},
+]
+
+# RSSHub публичный инстанс (можно заменить на self-hosted):
+RSSHUB_BASE = "https://rsshub.app"
+
+_tg_rsshub_lock   = threading.Lock()
+_tg_rsshub_last_ts = 0.0
 
 # ── КЛЮЧЕВЫЕ СЛОВА ───────────────────────────────────────────────
 RSS_KEYWORDS = [
@@ -133,24 +166,20 @@ RSS_KEYWORDS = [
     "переговоры","соглашение","договор","саммит","g7","g20","брикс","нато",
     "евросоюз","сша","китай","путин","байден","трамп","президент",
     "экономическая война","торговая война","пошлин","тариф",
-    # --- ГЕОПОЛИТИКА / ВОЕННЫЕ ДЕЙСТВИЯ ---
-    "иран","саудовская аравия","эль-джубайль","персидский залив","израиль",
+    "иран","саудовская аравия","персидский залив","израиль",
     "атака","удар","пожар","взрыв","ракет","дрон","бомбардировк","войск",
-    "эскалация","конфликт","война","войны","военный","бое","боевые действия",
-    "радиологический","чернобыль","катастрофа","ядерный","радиация",
+    "эскалация","война","войны","бое","боевые действия",
+    "радиологический","ядерный","радиация","катастрофа",
     "гладков","белгородская","отставка","губернатор","власти","правительство",
     "мид рф","мид","россия","украина",
-    # --- МАКРОЭКОНОМИКА ---
-    "m2","денежная масса","ликвидность","триллион","$","доллар",
+    "m2","денежная масса","ликвидность","триллион",
     "выступление","отчет","данные","статистика","публикация","заседание",
-    "председатель","пауэлл","фomc","комитет",
-    # --- ИИ СТАРТАПЫ ---
-    "стартап","founder","создатель","один человек","одиночка","соло",
-    # --- ПРОГНОЗЫ / СТАВКИ ---
-    "polymarket","прогноз","ставка","вероятность","шанс",
+    "председатель","пауэлл","fomc","комитет",
+    "стартап","founder","создатель",
+    "polymarket","прогноз","вероятность","шанс",
 ]
 
-# ── RSS ИСТОЧНИКИ (теперь работают на Render!) ─────────────────
+# ── RSS ИСТОЧНИКИ ─────────────────────────────────────────────────
 RSS_SOURCES = [
     {"name": "CoinDesk",       "url": "https://www.coindesk.com/arc/outboundfeeds/rss/",     "flag": "🪙"},
     {"name": "CoinTelegraph",  "url": "https://cointelegraph.com/rss",                       "flag": "📡"},
@@ -160,9 +189,12 @@ RSS_SOURCES = [
     {"name": "FT Markets",     "url": "https://www.ft.com/rss/home/uk",                      "flag": "💹"},
     {"name": "TechCrunch AI",  "url": "https://techcrunch.com/category/artificial-intelligence/feed/", "flag": "🤖"},
     {"name": "VentureBeat AI", "url": "https://venturebeat.com/category/ai/feed/",           "flag": "💡"},
+    # Reuters — напрямую блокируют feedparser, используем через RSSHub
+    {"name": "Reuters Biz",    "url": "https://rsshub.app/reuters/businessNews",             "flag": "🗞️"},
+    {"name": "Reuters Mkts",   "url": "https://rsshub.app/reuters/marketsNews",              "flag": "📈"},
 ]
 
-# ── GOOGLE TRANSLATE ──────────────────────────────────────────────
+# ── GOOGLE TRANSLATE ─────────────────────────────────────────────
 def _is_russian(text: str) -> bool:
     return any('\u0400' <= ch <= '\u04FF' for ch in text)
 
@@ -183,10 +215,11 @@ def translate_to_ru(text: str) -> str:
         write_debug_log(f"TRANSLATE_ERR | {e}")
     return text
 
-# ── DEBUG LOG ─────────────────────────────────────────────────────
-def write_debug_log(entry: str):
-    log_path = os.path.join(BASE_DIR, "webhook_debug.log")
+# ── DEBUG LOG ────────────────────────────────────────────────────
+def _write_log_file(entry: str):
+    """Запись только в файл (без Redis, чтобы не было рекурсии)."""
     try:
+        log_path = os.path.join(BASE_DIR, "webhook_debug.log")
         ts = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(f"[{ts}] {entry}\n")
@@ -198,13 +231,20 @@ def write_debug_log(entry: str):
     except Exception:
         pass
 
-# ── REDIS ХЕЛПЕРЫ (замена файловому кэшу) ────────────────────────
-def load_json(key: str, default):
-    return redis_get(key, default)
+def write_debug_log(entry: str):
+    """Пишет в файл И дублирует в Redis — лог не теряется при рестарте Render."""
+    _write_log_file(entry)
+    try:
+        ts = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+        line = f"[{ts}] {entry}"
+        r = get_redis()
+        if r:
+            r.lpush("debug_log", line)
+            r.ltrim("debug_log", 0, 199)  # хранить последние 200 строк
+    except Exception:
+        pass
 
-def save_json(key: str, data):
-    redis_set(key, data)
-
+# ── REDIS ХЕЛПЕРЫ ────────────────────────────────────────────────
 def load_rss_seen():
     return redis_get("rss_seen", {})
 
@@ -216,12 +256,6 @@ def _cp_get_retry_after() -> float:
 
 def _cp_set_retry_after(until_ts: float):
     redis_set("cp_retry_after", until_ts, ex=3600)
-
-def _twitter_get_retry_after() -> float:
-    return redis_get("twitter_retry_after", 0.0)
-
-def _twitter_set_retry_after(until_ts: float):
-    redis_set("twitter_retry_after", until_ts, ex=3600)
 
 # ── TELEGRAM SEND ─────────────────────────────────────────────────
 def send_tg(text: str, chat_id=None, thread_id=None) -> dict:
@@ -319,13 +353,15 @@ def is_bot_admin(user_id: int) -> bool:
 # ── FLASK ROUTES ──────────────────────────────────────────────────
 @app.route("/")
 def health():
+    nitter_inst = redis_get("nitter_instance_cache", "—")
     return jsonify({
         "status": "ok",
         "server": "news_bot_render",
         "webhook_ok": _webhook_ok,
         "cached_news": len(load_rss_seen()),
         "news_topic": NEWS_TOPIC_ID,
-        "features": ["cryptopanic", "rss", "twitter", "telegram_channels"]
+        "nitter_instance": nitter_inst,
+        "features": ["cryptopanic", "rss", "nitter_rss", "telegram_rsshub"]
     })
 
 @app.route("/setup")
@@ -335,13 +371,23 @@ def setup_webhook():
 
 @app.route("/debug")
 def debug_log_route():
+    # Сначала пробуем Redis (переживает рестарты Render)
+    try:
+        r = get_redis()
+        if r:
+            lines = r.lrange("debug_log", 0, 49)
+            if lines:
+                return jsonify({"log": "\n".join(reversed(lines)), "source": "redis", "total": len(lines)})
+    except Exception:
+        pass
+    # Fallback — локальный файл
     log_path = os.path.join(BASE_DIR, "webhook_debug.log")
     if not os.path.exists(log_path):
         return jsonify({"log": "Лог пуст"})
     try:
         with open(log_path, "r", encoding="utf-8") as f:
             lines = f.readlines()
-        return jsonify({"log": "".join(lines[-50:]), "total_lines": len(lines)})
+        return jsonify({"log": "".join(lines[-50:]), "source": "file", "total_lines": len(lines)})
     except Exception as e:
         return jsonify({"error": str(e)})
 
@@ -357,7 +403,7 @@ def telegram_webhook():
         write_debug_log(f"TG_WEBHOOK_ERR | {e}")
     return "!", 200
 
-# ── TELEGRAM КОМАНДЫ ──────────────────────────────────────────────
+# ── TELEGRAM КОМАНДЫ ─────────────────────────────────────────────
 @bot.message_handler(commands=["start"])
 def cmd_start(message):
     _reply(message, "👋 Привет! Это <b>Statham News Bot</b>.\nДля справки — /help")
@@ -371,13 +417,14 @@ def cmd_help(message):
 • /help — Эта справка
 
 <b>🔧 Только для Admin:</b>
-• /news [текст] — Опубликовать новость вручную в топик
+• /news [текст] — Опубликовать новость вручную
 • /check_news — Запустить парсинг прямо сейчас
-• /news_status — Статус бота, кэш, список источников
-• /clear_cache — Очистить кэш отправленных новостей
+• /news_status — Статус бота, кэш, источники
+• /clear_cache — Очистить кэш новостей
+• /nitter_check — Проверить доступность Nitter
 
 <b>🌐 Открыть в браузере:</b>
-• /debug — Последние 50 строк лога
+• /debug — Лог (из Redis, не теряется при рестарте)
 • /setup — Переустановить webhook""")
 
 @bot.message_handler(commands=["news"])
@@ -406,36 +453,60 @@ def cmd_check_news(message):
         try:
             _check_news()
             _check_rss_all()
-            _check_telegram_channels()
+            _check_nitter_all()
+            _check_telegram_rsshub()
             _reply(message, "✅ Готово. Подробности: /debug")
         except Exception as e:
             _reply(message, f"❌ Ошибка: {e}")
     threading.Thread(target=_run, daemon=True).start()
+
+@bot.message_handler(commands=["nitter_check"])
+def cmd_nitter_check(message):
+    if not is_bot_admin(message.from_user.id):
+        _reply(message, "❌ Только для администраторов")
+        return
+    # Сбросить кэш и перепроверить
+    try:
+        r = get_redis()
+        if r:
+            r.delete("nitter_instance_cache")
+    except Exception:
+        pass
+    inst = _get_nitter_instance()
+    if inst:
+        _reply(message, f"✅ Nitter работает: <code>{inst}</code>")
+    else:
+        _reply(message, "❌ Все Nitter-инстансы недоступны.\nПроверь список NITTER_INSTANCES в коде.")
 
 @bot.message_handler(commands=["news_status"])
 def cmd_news_status(message):
     if not is_bot_admin(message.from_user.id):
         _reply(message, "❌ Только для администраторов")
         return
-    seen = load_rss_seen()
-    tg_seen = redis_get("telegram_seen", [])
-    tok_ok = "✅ Установлен" if CRYPTOPANIC_TOKEN else "⚠️ Не установлен"
-    rss_list = "\n".join(f"  {s['flag']} {s['name']}" for s in RSS_SOURCES)
+    seen       = load_rss_seen()
+    nitter_seen = redis_get("nitter_seen", {})
+    tg_seen    = redis_get("telegram_rsshub_seen", {})
+    tok_ok     = "✅ Установлен" if CRYPTOPANIC_TOKEN else "⚠️ Не установлен"
+    nitter_inst = redis_get("nitter_instance_cache", "не определён")
+    rss_list    = "\n".join(f"  {s['flag']} {s['name']}" for s in RSS_SOURCES)
+    nitter_list = "\n".join(f"  {a['flag']} @{a['username']}" for a in NITTER_ACCOUNTS)
+    tg_list     = "\n".join(f"  💬 {ch['name']}" for ch in TELEGRAM_RSS_CHANNELS) or "  (не настроено)"
     _reply(message, f"""📰 <b>Статус новостей</b>
 
-🔑 CryptoPanic токен: {tok_ok}
- Кэш новостей: {len(seen)}
-📚 Кэш Telegram: {len(tg_seen)} сообщений
-⏱ Парсинг: каждые 30 мин
+🔑 CryptoPanic: {tok_ok}
+📦 Кэш RSS: {len(seen)} | Nitter: {len(nitter_seen)} | TG: {len(tg_seen)}
+⏱ RSS+Nitter: каждые 30 мин | TG: каждые 15 мин
 📬 Топик: #{NEWS_TOPIC_ID}
+🐦 Nitter-инстанс: {nitter_inst}
 
-<b>✅ Работает:</b>
-🌍 CryptoPanic EN+RU — крипто-новости
-📡 RSS — {len(RSS_SOURCES)} источников
-💬 Telegram — {len(TELEGRAM_CHANNELS)} каналов
+<b>📂 RSS источники ({len(RSS_SOURCES)}):</b>
+{rss_list}
 
-<b>📂 Источники RSS:</b>
-{rss_list}""")
+<b>🐦 Nitter аккаунты ({len(NITTER_ACCOUNTS)}):</b>
+{nitter_list}
+
+<b>💬 Telegram каналы ({len(TELEGRAM_RSS_CHANNELS)}):</b>
+{tg_list}""")
 
 @bot.message_handler(commands=["clear_cache"])
 def cmd_clear_cache(message):
@@ -443,8 +514,8 @@ def cmd_clear_cache(message):
         _reply(message, "❌ Только для администраторов")
         return
     save_rss_seen({})
-    redis_set("twitter_seen", [])
-    redis_set("telegram_seen", [])
+    redis_set("nitter_seen", {})
+    redis_set("telegram_rsshub_seen", {})
     _reply(message, "✅ Кэш очищен. Следующий запуск пришлёт свежие новости.")
 
 # ── CRYPTOPANIC NEWS ──────────────────────────────────────────────
@@ -459,15 +530,14 @@ def _check_news():
             time.sleep(wait)
         elapsed = time.time() - _cp_last_req_ts
         if elapsed < CP_MIN_INTERVAL:
-            wait = CP_MIN_INTERVAL - elapsed
-            write_debug_log(f"CRYPTOPANIC | ждём {wait:.0f}s (min-interval)")
-            time.sleep(wait)
+            write_debug_log("CRYPTOPANIC | пропуск: слишком рано")
+            return
         _cp_last_req_ts = time.time()
         seen = load_rss_seen()
         if isinstance(seen, list):
             seen = {url: 0 for url in seen}
         now_ts = int(time.time())
-        seen = {u: ts for u, ts in seen.items() if ts > now_ts - 30 * 86400}
+        seen = {k: v for k, v in seen.items() if v > now_ts - 30 * 86400}
         new_seen = dict(seen)
         sent_count = 0
         try:
@@ -508,16 +578,15 @@ def _check_news():
                     continue
                 if not any(kw in title.lower() for kw in RSS_KEYWORDS):
                     continue
-                source = item.get("source", {}).get("title", "")
-                domain = item.get("source", {}).get("domain", "")
+                source  = item.get("source", {}).get("title", "")
+                domain  = item.get("source", {}).get("domain", "")
                 pub_raw = item.get("published_at", "")
                 pub_str = pub_raw[:16].replace("T", " ") + " UTC" if pub_raw else ""
-                panic = item.get("panic_score")
+                panic   = item.get("panic_score")
                 try:
-                    is_ru = _is_russian(title)
+                    is_ru     = _is_russian(title)
                     title_out = title if is_ru else translate_to_ru(title)
                     if not is_ru and not _is_russian(title_out):
-                        write_debug_log(f"CRYPTOPANIC | SKIP (no translation): {title[:60]}")
                         continue
                     flag = "🇷🇺" if is_ru else "🌍"
                     meta = []
@@ -553,216 +622,22 @@ def _check_news():
             save_rss_seen(new_seen)
         write_debug_log(f"CRYPTOPANIC | done | sent={sent_count} | cached={len(new_seen)}")
 
-# ── TWITTER PARSER ───────────────────────────────────────────────
-def _twitter_get_retry_after() -> float:
-    try:
-        if os.path.exists(TWITTER_RATELIMIT_FILE):
-            with open(TWITTER_RATELIMIT_FILE, "r") as f:
-                return float(json.load(f).get("retry_after", 0))
-    except Exception:
-        pass
-    return 0.0
-
-def _twitter_set_retry_after(until_ts: float):
-    try:
-        with open(TWITTER_RATELIMIT_FILE, "w") as f:
-            json.dump({"retry_after": until_ts}, f)
-    except Exception:
-        pass
-
-def _check_twitter():
-    global _twitter_last_req_ts
-    if not TWITTER_BEARER_TOKEN:
-        write_debug_log("TWITTER | пропуск: токен не установлен")
-        return
-    with _twitter_lock:
-        now = time.time()
-        retry_after_ts = _twitter_get_retry_after()
-        if now < retry_after_ts:
-            wait = retry_after_ts - now + 1.0
-            write_debug_log(f"TWITTER | ждём {wait:.0f}s (Retry-After)")
-            time.sleep(wait)
-        elapsed = time.time() - _twitter_last_req_ts
-        if elapsed < TWITTER_MIN_INTERVAL:
-            wait = TWITTER_MIN_INTERVAL - elapsed
-            write_debug_log(f"TWITTER | ждём {wait:.0f}s (min-interval)")
-            time.sleep(wait)
-        _twitter_last_req_ts = time.time()
-        seen = redis_get("twitter_seen", [])
-        now_ts = int(time.time())
-        new_seen = list(seen)
-        sent_count = 0
-        try:
-            headers = {"Authorization": f"Bearer {TWITTER_BEARER_TOKEN}"}
-            user_ids = ",".join(TWITTER_USERS)
-            resp = requests.get(
-                "https://api.twitter.com/2/tweets/search/recent",
-                headers=headers,
-                params={
-                    "query": f"from:({user_ids.replace(',', ' OR from:')}) -is:retweet",
-                    "max_results": 20,
-                    "tweet.fields": "created_at,author_id,public_metrics",
-                    "expansions": "author_id",
-                    "user.fields": "username"
-                },
-                timeout=15
-            )
-            if resp.status_code == 401:
-                write_debug_log("TWITTER | 401 Unauthorized")
-                return
-            if resp.status_code == 429:
-                reset_ts = int(resp.headers.get("x-rate-limit-reset", time.time() + 900))
-                _twitter_set_retry_after(reset_ts)
-                write_debug_log(f"TWITTER | 429 — retry after {reset_ts - time.time():.0f}s")
-                return
-            if resp.status_code != 200:
-                write_debug_log(f"TWITTER | HTTP {resp.status_code}")
-                return
-            data = resp.json()
-            tweets = data.get("data", [])
-            users = {u["id"]: u["username"] for u in data.get("includes", {}).get("users", [])}
-            write_debug_log(f"TWITTER | tweets={len(tweets)}")
-            for tweet in tweets:
-                if sent_count >= RSS_MAX_PER_RUN:
-                    break
-                tweet_id = tweet.get("id")
-                if tweet_id in seen:
-                    continue
-                text = tweet.get("text", "")
-                if not text:
-                    continue
-                if not any(kw in text.lower() for kw in RSS_KEYWORDS):
-                    continue
-                try:
-                    author_id = tweet.get("author_id", "")
-                    username = users.get(author_id, "unknown")
-                    created = tweet.get("created_at", "")[:16].replace("T", " ")
-                    metrics = tweet.get("public_metrics", {})
-                    likes = metrics.get("like_count", 0)
-                    retweets = metrics.get("retweet_count", 0)
-                    tweet_url = f"https://twitter.com/{username}/status/{tweet_id}"
-                    is_ru = _is_russian(text)
-                    text_out = text if is_ru else translate_to_ru(text)
-                    if not is_ru and not _is_russian(text_out):
-                        write_debug_log(f"TWITTER | SKIP (no translation): {text[:60]}")
-                        continue
-                    parts = [f"🐦 <b>Twitter / @{username}</b>"]
-                    meta = []
-                    if created:
-                        meta.append(f"🕐 {created} UTC")
-                    if likes or retweets:
-                        meta.append(f"❤️ {likes} | 🔄 {retweets}")
-                    if meta:
-                        parts.append("  |  ".join(meta))
-                    parts.append("")
-                    text_clean = re.sub(r'http\S+', '', text_out).strip()
-                    parts.append(f"<b>{text_clean[:280]}</b>")
-                    if not is_ru and text_out != text:
-                        orig_clean = re.sub(r'http\S+', '', text).strip()
-                        parts.append(f"<i>{orig_clean[:200]}</i>")
-                    parts.append(f"🔗 {tweet_url}")
-                    send_news("\n".join(parts))
-                    new_seen.append(tweet_id)
-                    sent_count += 1
-                    time.sleep(3)
-                except Exception as e:
-                    write_debug_log(f"TWITTER_SEND_ERR | {e}")
-        except requests.exceptions.ConnectionError as e:
-            write_debug_log(f"TWITTER_CONN_ERR | {e}")
-        except requests.exceptions.Timeout:
-            write_debug_log("TWITTER_TIMEOUT")
-        except Exception as e:
-            write_debug_log(f"TWITTER_ERR | {e}")
-        if new_seen != seen:
-            redis_set("twitter_seen", new_seen[-500:])
-        write_debug_log(f"TWITTER | done | sent={sent_count} | cached={len(new_seen)}")
-
-# ── TELEGRAM CHANNELS PARSER ─────────────────────────────────────
-def _check_telegram_channels():
-    """
-    Парсит сообщения из указанных Telegram-каналов.
-    Использует Bot API для получения обновлений.
-    """
-    global _tg_last_check_ts
-    with _telegram_lock:
-        now = time.time()
-        if now - _tg_last_check_ts < TG_MIN_INTERVAL:
-            write_debug_log("TELEGRAM | пропуск: слишком часто")
-            return
-        _tg_last_check_ts = now
-        seen = redis_get("telegram_seen", [])
-        now_ts = int(time.time())
-        new_seen = list(seen)
-        sent_count = 0
-        for channel_id in TELEGRAM_CHANNELS:
-            try:
-                resp = requests.post(
-                    f"https://api.telegram.org/bot{TOKEN}/getUpdates",
-                    json={"limit": 100},
-                    timeout=10
-                )
-                if resp.status_code != 200:
-                    continue
-                updates = resp.json().get("result", [])
-                for update in updates:
-                    msg = update.get("channel_post") or update.get("message")
-                    if not msg:
-                        continue
-                    chat = msg.get("chat", {})
-                    if str(chat.get("id")) != channel_id:
-                        continue
-                    msg_id = str(msg.get("message_id"))
-                    cache_key = f"{channel_id}:{msg_id}"
-                    if cache_key in seen or cache_key in new_seen:
-                        continue
-                    text = msg.get("text") or msg.get("caption", "")
-                    if not text:
-                        continue
-                    if not any(kw in text.lower() for kw in RSS_KEYWORDS):
-                        continue
-                    try:
-                        date = msg.get("date", 0)
-                        date_str = datetime.datetime.fromtimestamp(date).strftime("%Y-%m-%d %H:%M") if date else ""
-                        is_ru = _is_russian(text)
-                        text_out = text if is_ru else translate_to_ru(text)
-                        if not is_ru and not _is_russian(text_out):
-                            continue
-                        channel_title = chat.get("title", "Unknown")
-                        parts = [f"💬 <b>Telegram / {channel_title}</b>"]
-                        if date_str:
-                            parts.append(f"🕐 {date_str}")
-                        parts.append("")
-                        text_clean = re.sub(r'http\S+', '', text_out).strip()[:400]
-                        parts.append(f"<b>{text_clean}</b>")
-                        if not is_ru and text_out != text:
-                            orig_clean = re.sub(r'http\S+', '', text).strip()[:300]
-                            parts.append(f"<i>{orig_clean}</i>")
-                        send_news("\n".join(parts))
-                        new_seen.append(cache_key)
-                        sent_count += 1
-                        time.sleep(3)
-                    except Exception as e:
-                        write_debug_log(f"TG_CHANNEL_SEND_ERR | {e}")
-            except Exception as e:
-                write_debug_log(f"TG_CHANNEL_ERR | {channel_id} | {e}")
-        if new_seen != seen:
-            redis_set("telegram_seen", new_seen[-500:])
-        write_debug_log(f"TELEGRAM | done | sent={sent_count} | cached={len(new_seen)}")
-
-# ── RSS-ПАРСЕР (через feedparser напрямую) ────────────────────────
+# ── RSS ПАРСЕР ────────────────────────────────────────────────────
 _rss_lock = threading.Lock()
 
 def _fetch_rss_items(url: str, name: str) -> list:
     try:
         feed = feedparser.parse(url)
-        if feed.bozo and feed.status != 200:
+        # ФИКС: используем getattr — Reuters и другие иногда не возвращают .status
+        status = getattr(feed, "status", 200)
+        if feed.bozo and status != 200:
             write_debug_log(f"RSS | {name} | feedparser error: {feed.bozo_exception}")
             return []
         entries = []
         for entry in feed.entries[:30]:
             item = {
-                "title": entry.get("title", ""),
-                "link": entry.get("link", ""),
+                "title":   entry.get("title", ""),
+                "link":    entry.get("link", ""),
                 "pubDate": entry.get("published", entry.get("updated", ""))
             }
             entries.append(item)
@@ -773,7 +648,7 @@ def _fetch_rss_items(url: str, name: str) -> list:
         return []
 
 def _check_rss_source(source: dict, seen: dict, now_ts: int) -> tuple:
-    new_seen = dict(seen)
+    new_seen   = dict(seen)
     sent_count = 0
     items = _fetch_rss_items(source["url"], source["name"])
     if not items:
@@ -782,24 +657,22 @@ def _check_rss_source(source: dict, seen: dict, now_ts: int) -> tuple:
     for item in items[:30]:
         if sent_count >= RSS_MAX_PER_RUN:
             break
-        title = (item.get("title") or "").strip()
+        title   = (item.get("title") or "").strip()
         if not title:
             continue
-        url = (item.get("link") or "").strip()
+        url     = (item.get("link") or "").strip()
         pub_str = (item.get("pubDate") or "")[:16]
         cache_key = url or hashlib.md5(title.encode()).hexdigest()
-        if cache_key in new_seen:  # Проверяем против обновлённого кэша
+        if cache_key in new_seen:
             continue
         if not any(kw in title.lower() for kw in RSS_KEYWORDS):
             continue
         try:
-            is_ru = _is_russian(title)
-            title_out = title
-            if not is_ru:
-                title_out = translate_to_ru(title)
-                if not _is_russian(title_out):
-                    write_debug_log(f"RSS | {source['name']} | SKIP (no translation): {title[:60]}")
-                    continue
+            is_ru     = _is_russian(title)
+            title_out = title if is_ru else translate_to_ru(title)
+            if not is_ru and not _is_russian(title_out):
+                write_debug_log(f"RSS | {source['name']} | SKIP: {title[:60]}")
+                continue
             parts = [f"📰 <b>{source['flag']} {source['name']}</b>"]
             if pub_str:
                 parts.append(f"🕐 {pub_str}")
@@ -807,6 +680,8 @@ def _check_rss_source(source: dict, seen: dict, now_ts: int) -> tuple:
             parts.append(f"<b>{title_out}</b>")
             if not is_ru and title_out != title:
                 parts.append(f"<i>{title}</i>")
+            if url:
+                parts.append(f"🔗 {url}")
             send_news("\n".join(parts))
             new_seen[cache_key] = now_ts
             sent_count += 1
@@ -827,25 +702,196 @@ def _check_rss_all():
             seen, _ = _check_rss_source(source, seen, now_ts)
         save_rss_seen(seen)
 
+# ── NITTER RSS (замена Twitter API, бесплатно) ────────────────────
+def _check_nitter_all():
+    """
+    Парсит RSS-ленты Twitter-аккаунтов через Nitter.
+    Полностью бесплатно, не требует API-ключей.
+    Автоматически ищет рабочий Nitter-инстанс из списка NITTER_INSTANCES.
+    """
+    with _nitter_rss_lock:
+        inst = _get_nitter_instance()
+        if not inst:
+            write_debug_log("NITTER | пропуск: нет рабочих инстансов")
+            return
+        seen = redis_get("nitter_seen", {})
+        if isinstance(seen, list):
+            seen = {k: 0 for k in seen}
+        now_ts = int(time.time())
+        seen = {k: v for k, v in seen.items() if v > now_ts - 30 * 86400}
+        new_seen = dict(seen)
+        total_sent = 0
+        for account in NITTER_ACCOUNTS:
+            username = account["username"]
+            name     = account["name"]
+            flag     = account["flag"]
+            rss_url  = f"https://{inst}/{username}/rss"
+            try:
+                feed   = feedparser.parse(rss_url)
+                status = getattr(feed, "status", 200)
+                if feed.bozo and status != 200:
+                    write_debug_log(f"NITTER | @{username} | ошибка: {feed.bozo_exception}")
+                    # Сбрасываем кэш инстанса — попробуем другой в следующем цикле
+                    try:
+                        get_redis().delete("nitter_instance_cache")
+                    except Exception:
+                        pass
+                    continue
+                write_debug_log(f"NITTER | @{username} | items={len(feed.entries)}")
+                sent_count = 0
+                for entry in feed.entries[:20]:
+                    if sent_count >= RSS_MAX_PER_RUN:
+                        break
+                    title   = (entry.get("title") or "").strip()
+                    link    = (entry.get("link") or "").strip()
+                    pub_str = (entry.get("published", ""))[:16]
+                    if not title:
+                        continue
+                    cache_key = link or hashlib.md5(title.encode()).hexdigest()
+                    if cache_key in new_seen:
+                        continue
+                    # Полный текст — из summary (убираем HTML теги)
+                    summary    = entry.get("summary", title)
+                    text_clean = re.sub(r'<[^>]+>', '', summary).strip()
+                    text_clean = re.sub(r'http\S+', '', text_clean).strip()
+                    if not any(kw in text_clean.lower() for kw in RSS_KEYWORDS):
+                        new_seen[cache_key] = now_ts
+                        continue
+                    try:
+                        is_ru    = _is_russian(text_clean)
+                        text_out = text_clean if is_ru else translate_to_ru(text_clean[:400])
+                        if not is_ru and not _is_russian(text_out):
+                            new_seen[cache_key] = now_ts
+                            continue
+                        parts = [f"🐦 <b>{flag} {name} (@{username})</b>"]
+                        if pub_str:
+                            parts.append(f"🕐 {pub_str}")
+                        parts.append("")
+                        parts.append(f"<b>{text_out[:400]}</b>")
+                        if not is_ru and text_out != text_clean:
+                            parts.append(f"<i>{text_clean[:200]}</i>")
+                        # Конвертируем ссылку из Nitter → оригинальный Twitter
+                        tw_link = re.sub(rf"https?://{re.escape(inst)}", "https://twitter.com", link)
+                        if tw_link:
+                            parts.append(f"🔗 {tw_link}")
+                        send_news("\n".join(parts))
+                        new_seen[cache_key] = now_ts
+                        sent_count += 1
+                        total_sent += 1
+                        time.sleep(3)
+                    except Exception as e:
+                        write_debug_log(f"NITTER_SEND_ERR | @{username} | {e}")
+                write_debug_log(f"NITTER | @{username} | sent={sent_count}")
+            except Exception as e:
+                write_debug_log(f"NITTER_ERR | @{username} | {e}")
+        redis_set("nitter_seen", new_seen)
+        write_debug_log(f"NITTER | total sent={total_sent} | cached={len(new_seen)}")
+
+# ── TELEGRAM КАНАЛЫ ЧЕРЕЗ RSSHUB ─────────────────────────────────
+def _check_telegram_rsshub():
+    """
+    Читает публичные Telegram-каналы через RSSHub.
+    Бот НЕ нужен в этих каналах — только публичный username.
+    Заполни TELEGRAM_RSS_CHANNELS в начале файла.
+    """
+    global _tg_rsshub_last_ts
+    with _tg_rsshub_lock:
+        now = time.time()
+        if now - _tg_rsshub_last_ts < 300:
+            return
+        _tg_rsshub_last_ts = now
+        if not TELEGRAM_RSS_CHANNELS:
+            write_debug_log("TG_RSSHUB | каналы не настроены")
+            return
+        seen = redis_get("telegram_rsshub_seen", {})
+        if isinstance(seen, list):
+            seen = {k: 0 for k in seen}
+        now_ts = int(time.time())
+        seen = {k: v for k, v in seen.items() if v > now_ts - 30 * 86400}
+        new_seen   = dict(seen)
+        total_sent = 0
+        for ch in TELEGRAM_RSS_CHANNELS:
+            username = ch["username"]
+            name     = ch["name"]
+            flag     = ch.get("flag", "💬")
+            rss_url  = f"{RSSHUB_BASE}/telegram/channel/{username}"
+            try:
+                feed   = feedparser.parse(rss_url)
+                status = getattr(feed, "status", 200)
+                if feed.bozo and status != 200:
+                    write_debug_log(f"TG_RSSHUB | @{username} | ERR: {feed.bozo_exception}")
+                    continue
+                write_debug_log(f"TG_RSSHUB | @{username} | items={len(feed.entries)}")
+                sent_count = 0
+                for entry in feed.entries[:20]:
+                    if sent_count >= RSS_MAX_PER_RUN:
+                        break
+                    link    = (entry.get("link") or "").strip()
+                    summary = entry.get("summary", entry.get("title", ""))
+                    text    = re.sub(r'<[^>]+>', '', summary).strip()
+                    text    = re.sub(r'http\S+', '', text).strip()
+                    if not text:
+                        continue
+                    cache_key = link or hashlib.md5(text.encode()).hexdigest()
+                    if cache_key in new_seen:
+                        continue
+                    if not any(kw in text.lower() for kw in RSS_KEYWORDS):
+                        new_seen[cache_key] = now_ts
+                        continue
+                    pub_str = (entry.get("published", ""))[:16]
+                    try:
+                        is_ru    = _is_russian(text)
+                        text_out = text if is_ru else translate_to_ru(text[:400])
+                        if not is_ru and not _is_russian(text_out):
+                            new_seen[cache_key] = now_ts
+                            continue
+                        parts = [f"{flag} <b>Telegram / {name}</b>"]
+                        if pub_str:
+                            parts.append(f"🕐 {pub_str}")
+                        parts.append("")
+                        parts.append(f"<b>{text_out[:400]}</b>")
+                        if not is_ru and text_out != text:
+                            parts.append(f"<i>{text[:200]}</i>")
+                        if link:
+                            parts.append(f"🔗 {link}")
+                        send_news("\n".join(parts))
+                        new_seen[cache_key] = now_ts
+                        sent_count += 1
+                        total_sent += 1
+                        time.sleep(3)
+                    except Exception as e:
+                        write_debug_log(f"TG_RSSHUB_SEND_ERR | @{username} | {e}")
+                write_debug_log(f"TG_RSSHUB | @{username} | sent={sent_count}")
+            except Exception as e:
+                write_debug_log(f"TG_RSSHUB_ERR | @{username} | {e}")
+        redis_set("telegram_rsshub_seen", new_seen)
+        write_debug_log(f"TG_RSSHUB | total sent={total_sent} | cached={len(new_seen)}")
+
 # ── ПЛАНИРОВЩИК ───────────────────────────────────────────────────
-_last_news_ts = 0
-_last_twitter_ts = 0
-_last_telegram_ts = 0
+_last_news_ts   = 0
+_last_nitter_ts = 300   # сдвиг 5 мин от RSS чтобы не перегружать
+_last_tg_ts     = 0
 
 def _scheduler():
-    global _last_news_ts, _last_telegram_ts
+    global _last_news_ts, _last_nitter_ts, _last_tg_ts
+    # Ищем рабочий Nitter при старте
+    threading.Thread(target=_get_nitter_instance, daemon=True).start()
     while True:
         try:
             now_ts = int(time.time())
-            # CryptoPanic каждые 30 мин
+            # CryptoPanic + RSS каждые 30 мин
             if now_ts - _last_news_ts >= 1800:
                 _last_news_ts = now_ts
-                threading.Thread(target=_check_news, daemon=True).start()
+                threading.Thread(target=_check_news,    daemon=True).start()
                 threading.Thread(target=_check_rss_all, daemon=True).start()
+            # Nitter RSS каждые 30 мин (со сдвигом)
+            if now_ts - _last_nitter_ts >= 1800:
+                _last_nitter_ts = now_ts
+                threading.Thread(target=_check_nitter_all, daemon=True).start()
             # Telegram каналы каждые 15 мин
-            if now_ts - _last_telegram_ts >= 900:
-                _last_telegram_ts = now_ts
-                threading.Thread(target=_check_telegram_channels, daemon=True).start()
+            if now_ts - _last_tg_ts >= 900:
+                _last_tg_ts = now_ts
+                threading.Thread(target=_check_telegram_rsshub, daemon=True).start()
         except Exception as e:
             write_debug_log(f"SCHEDULER_ERR | {e}")
         time.sleep(60)
