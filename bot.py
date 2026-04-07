@@ -109,6 +109,11 @@ NITTER_INSTANCES = [
     "nitter.1d4.us",
     "nitter.kavin.rocks",
     "nitter.cz",
+    "nitter.net",
+    "nitter.it",
+    "nitter.moomoo.me",
+    "nitter.fdn.fr",
+    "nitter.nixnet.services",
 ]
 
 # Аккаунты для мониторинга (username без @)
