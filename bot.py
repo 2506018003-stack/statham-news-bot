@@ -22,8 +22,8 @@ CHAT_ID   = os.environ.get("CHAT_ID", "-1003867089540")
 
 NEWS_TOPIC_ID = "9505"
 
-# Render использует /data для персистентного хранения
-BASE_DIR      = os.environ.get("DATA_DIR", "/data")
+# Render free tier - используем текущую директорию (без диска)
+BASE_DIR      = os.path.dirname(os.path.abspath(__file__))
 RSS_SEEN_FILE = os.path.join(BASE_DIR, "rss_seen.json")
 os.makedirs(BASE_DIR, exist_ok=True)
 
