@@ -100,6 +100,21 @@ RSS_KEYWORDS = [
     "переговоры","соглашение","договор","саммит","g7","g20","брикс","нато",
     "евросоюз","сша","китай","путин","байден","трамп","президент",
     "экономическая война","торговая война","пошлин","тариф",
+    # --- ГЕОПОЛИТИКА / ВОЕННЫЕ ДЕЙСТВИЯ ---
+    "иран","саудовская аравия","эль-джубайль","персидский залив","израиль",
+    "атака","удар","пожар","взрыв","ракет","дрон","бомбардировк","войск",
+    "эскалация","конфликт","война","войны","военный","бое","боевые действия",
+    "радиологический","чернобыль","катастрофа","ядерный","радиация",
+    "гладков","белгородская","отставка","губернатор","власти","правительство",
+    "мид рф","мид","россия","украина",
+    # --- МАКРОЭКОНОМИКА ---
+    "m2","денежная масса","ликвидность","триллион","$","доллар",
+    "выступление","отчет","данные","статистика","публикация","заседание",
+    "председатель","пауэлл","фomc","комитет",
+    # --- ИИ СТАРТАПЫ ---
+    "стартап","founder","создатель","один человек","одиночка","соло",
+    # --- ПРОГНОЗЫ / СТАВКИ ---
+    "polymarket","прогноз","ставка","вероятность","шанс",
 ]
 
 # ── RSS ИСТОЧНИКИ (теперь работают на Render!) ─────────────────
@@ -730,6 +745,8 @@ def _check_telegram_channels():
         write_debug_log(f"TELEGRAM | done | sent={sent_count} | cached={len(new_seen)}")
 
 # ── RSS-ПАРСЕР (через feedparser напрямую) ────────────────────────
+_rss_lock = threading.Lock()
+
 def _fetch_rss_items(url: str, name: str) -> list:
     try:
         feed = feedparser.parse(url)
@@ -766,7 +783,7 @@ def _check_rss_source(source: dict, seen: dict, now_ts: int) -> tuple:
         url = (item.get("link") or "").strip()
         pub_str = (item.get("pubDate") or "")[:16]
         cache_key = url or hashlib.md5(title.encode()).hexdigest()
-        if cache_key in seen:
+        if cache_key in new_seen:  # Проверяем против обновлённого кэша
             continue
         if not any(kw in title.lower() for kw in RSS_KEYWORDS):
             continue
@@ -795,14 +812,15 @@ def _check_rss_source(source: dict, seen: dict, now_ts: int) -> tuple:
     return new_seen, sent_count
 
 def _check_rss_all():
-    seen = load_rss_seen()
-    if isinstance(seen, list):
-        seen = {url: 0 for url in seen}
-    now_ts = int(time.time())
-    seen = {k: v for k, v in seen.items() if v > now_ts - 30 * 86400}
-    for source in RSS_SOURCES:
-        seen, _ = _check_rss_source(source, seen, now_ts)
-    save_rss_seen(seen)
+    with _rss_lock:
+        seen = load_rss_seen()
+        if isinstance(seen, list):
+            seen = {url: 0 for url in seen}
+        now_ts = int(time.time())
+        seen = {k: v for k, v in seen.items() if v > now_ts - 30 * 86400}
+        for source in RSS_SOURCES:
+            seen, _ = _check_rss_source(source, seen, now_ts)
+        save_rss_seen(seen)
 
 # ── ПЛАНИРОВЩИК ───────────────────────────────────────────────────
 _last_news_ts = 0
