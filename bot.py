@@ -7,6 +7,7 @@ from urllib.parse import quote as url_quote
 from flask import Flask, request, jsonify
 import requests
 import telebot
+import feedparser
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -728,28 +729,26 @@ def _check_telegram_channels():
             save_json(TELEGRAM_SEEN_FILE, new_seen[-500:])
         write_debug_log(f"TELEGRAM | done | sent={sent_count} | cached={len(new_seen)}")
 
-# ── RSS-ПАРСЕР ────────────────────────────────────────────────────
+# ── RSS-ПАРСЕР (через feedparser напрямую) ────────────────────────
 def _fetch_rss_items(url: str, name: str) -> list:
     try:
-        api_url = f"https://api.rss2json.com/v1/api.json?rss_url={url_quote(url)}&count=30"
-        resp = requests.get(
-            api_url,
-            timeout=20,
-            headers={"User-Agent": "Mozilla/5.0 (compatible; NewsBot/1.0)"}
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            if data.get("status") == "ok":
-                items = data.get("items", [])
-                write_debug_log(f"RSS | {name} | rss2json OK | items={len(items)}")
-                return items
-            else:
-                write_debug_log(f"RSS | {name} | rss2json error: {data.get('message', '')}")
-        else:
-            write_debug_log(f"RSS | {name} | rss2json HTTP {resp.status_code}")
+        feed = feedparser.parse(url)
+        if feed.bozo and feed.status != 200:
+            write_debug_log(f"RSS | {name} | feedparser error: {feed.bozo_exception}")
+            return []
+        entries = []
+        for entry in feed.entries[:30]:
+            item = {
+                "title": entry.get("title", ""),
+                "link": entry.get("link", ""),
+                "pubDate": entry.get("published", entry.get("updated", ""))
+            }
+            entries.append(item)
+        write_debug_log(f"RSS | {name} | feedparser OK | items={len(entries)}")
+        return entries
     except Exception as e:
-        write_debug_log(f"RSS | {name} | rss2json ERR: {e}")
-    return []
+        write_debug_log(f"RSS | {name} | feedparser ERR: {e}")
+        return []
 
 def _check_rss_source(source: dict, seen: dict, now_ts: int) -> tuple:
     new_seen = dict(seen)
