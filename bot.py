@@ -22,9 +22,18 @@ def get_redis():
     global _redis_client
     if _redis_client is None and REDIS_URL:
         try:
-            _redis_client = redis.from_url(REDIS_URL, decode_responses=True)
+            # Upstash Redis требует TLS
+            _redis_client = redis.from_url(
+                REDIS_URL, 
+                decode_responses=True,
+                ssl_cert_reqs=None  # Обязательно для Upstash
+            )
+            # Тестируем соединение
+            _redis_client.ping()
+            _write_log_file("REDIS_OK | Подключено к Upstash Redis")
         except Exception as e:
             _write_log_file(f"REDIS_ERR | {e}")
+            _redis_client = None
     return _redis_client
 
 def redis_get(key: str, default=None):
