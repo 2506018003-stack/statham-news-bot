@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: statham-news-bot
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn bot:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120
+    envVars:
+      - key: BOT_TOKEN_NEWS
+        sync: false
+      - key: CHAT_ID
+        value: "-1003867089540"
+      - key: CRYPTOPANIC_TOKEN
+        sync: false
+      - key: TWITTER_BEARER_TOKEN
+        sync: false
+      - key: TELEGRAM_API_ID
+        sync: false
+      - key: TELEGRAM_API_HASH
+        sync: false
+      - key: PYTHON_VERSION
+        value: "3.11"
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 1
