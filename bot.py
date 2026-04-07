@@ -157,8 +157,6 @@ RSS_SOURCES = [
     {"name": "Decrypt",        "url": "https://decrypt.co/feed",                             "flag": "🔓"},
     {"name": "BeInCrypto",     "url": "https://beincrypto.com/feed/",                        "flag": "📊"},
     {"name": "The Block",      "url": "https://www.theblock.co/rss.xml",                     "flag": "🧱"},
-    {"name": "Reuters Biz",    "url": "https://feeds.reuters.com/reuters/businessNews",      "flag": "📰"},
-    {"name": "Reuters Mkts",   "url": "https://feeds.reuters.com/reuters/financialsNews",    "flag": "📈"},
     {"name": "FT Markets",     "url": "https://www.ft.com/rss/home/uk",                      "flag": "💹"},
     {"name": "TechCrunch AI",  "url": "https://techcrunch.com/category/artificial-intelligence/feed/", "flag": "🤖"},
     {"name": "VentureBeat AI", "url": "https://venturebeat.com/category/ai/feed/",           "flag": "💡"},
@@ -407,7 +405,7 @@ def cmd_check_news(message):
     def _run():
         try:
             _check_news()
-            _check_twitter()
+            _check_rss_all()
             _check_telegram_channels()
             _reply(message, "✅ Готово. Подробности: /debug")
         except Exception as e:
@@ -420,17 +418,13 @@ def cmd_news_status(message):
         _reply(message, "❌ Только для администраторов")
         return
     seen = load_rss_seen()
-    tw_seen = redis_get("twitter_seen", [])
     tg_seen = redis_get("telegram_seen", [])
     tok_ok = "✅ Установлен" if CRYPTOPANIC_TOKEN else "⚠️ Не установлен"
-    tw_ok = "✅ Установлен" if TWITTER_BEARER_TOKEN else "⚠️ Не установлен"
     rss_list = "\n".join(f"  {s['flag']} {s['name']}" for s in RSS_SOURCES)
     _reply(message, f"""📰 <b>Статус новостей</b>
 
 🔑 CryptoPanic токен: {tok_ok}
-🐦 Twitter токен: {tw_ok}
-📚 Кэш CryptoPanic: {len(seen)} новостей
-📚 Кэш Twitter: {len(tw_seen)} твитов
+ Кэш новостей: {len(seen)}
 📚 Кэш Telegram: {len(tg_seen)} сообщений
 ⏱ Парсинг: каждые 30 мин
 📬 Топик: #{NEWS_TOPIC_ID}
@@ -438,7 +432,6 @@ def cmd_news_status(message):
 <b>✅ Работает:</b>
 🌍 CryptoPanic EN+RU — крипто-новости
 📡 RSS — {len(RSS_SOURCES)} источников
-🐦 Twitter — {len(TWITTER_USERS)} аккаунтов
 💬 Telegram — {len(TELEGRAM_CHANNELS)} каналов
 
 <b>📂 Источники RSS:</b>
@@ -840,7 +833,7 @@ _last_twitter_ts = 0
 _last_telegram_ts = 0
 
 def _scheduler():
-    global _last_news_ts, _last_twitter_ts, _last_telegram_ts
+    global _last_news_ts, _last_telegram_ts
     while True:
         try:
             now_ts = int(time.time())
@@ -849,10 +842,6 @@ def _scheduler():
                 _last_news_ts = now_ts
                 threading.Thread(target=_check_news, daemon=True).start()
                 threading.Thread(target=_check_rss_all, daemon=True).start()
-            # Twitter каждые 60 мин
-            if now_ts - _last_twitter_ts >= 3600:
-                _last_twitter_ts = now_ts
-                threading.Thread(target=_check_twitter, daemon=True).start()
             # Telegram каналы каждые 15 мин
             if now_ts - _last_telegram_ts >= 900:
                 _last_telegram_ts = now_ts
