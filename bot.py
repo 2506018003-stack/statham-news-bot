@@ -7,7 +7,6 @@ from flask import Flask, request, jsonify
 import requests
 import telebot
 import feedparser
-import redis
 from dotenv import load_dotenv
 
 load_dotenv()
