@@ -284,6 +284,7 @@ _history_lock = threading.Lock()
 _published_history_cache = None
 
 PUBLISHED_HISTORY_KEY = "published_history"
+PUBLISHED_HISTORY_MIGRATION_KEY = "published_history_migrated_v1"
 PUBLISHED_HISTORY_TTL = 90 * 86400
 
 # ── КЛЮЧЕВЫЕ СЛОВА ───────────────────────────────────────────────
@@ -440,6 +441,15 @@ def _make_history_keys(text: str = "", url: str = "", extra_text: str = "") -> l
             keys.append(f"text:{hashlib.sha1(norm_text.encode('utf-8')).hexdigest()}")
     return list(dict.fromkeys(keys))
 
+def _legacy_history_key(cache_key: str) -> str:
+    return f"legacy:{str(cache_key).strip()}"
+
+def _history_keys_for_item(cache_key: str, text: str = "", url: str = "", extra_text: str = "") -> list[str]:
+    keys = _make_history_keys(text=text, url=url, extra_text=extra_text)
+    if cache_key:
+        keys.append(_legacy_history_key(cache_key))
+    return list(dict.fromkeys(keys))
+
 def _load_published_history() -> dict:
     global _published_history_cache
     if _published_history_cache is None:
@@ -496,6 +506,52 @@ def clear_published_history():
     with _history_lock:
         _published_history_cache = {}
         redis_delete(PUBLISHED_HISTORY_KEY)
+        redis_delete(PUBLISHED_HISTORY_MIGRATION_KEY)
+
+def _iter_seen_cache_items(data) -> list[tuple[str, int]]:
+    now_ts = int(time.time())
+    if isinstance(data, dict):
+        items = []
+        for key, value in data.items():
+            if not key:
+                continue
+            ts = int(value) if isinstance(value, (int, float)) and value > 0 else now_ts
+            items.append((str(key), ts))
+        return items
+    if isinstance(data, list):
+        return [(str(item), now_ts) for item in data if item]
+    return []
+
+def migrate_legacy_seen_to_history(force: bool = False) -> int:
+    now_ts = int(time.time())
+    marker = redis_get(PUBLISHED_HISTORY_MIGRATION_KEY, {})
+    if marker and not force:
+        return 0
+
+    added = 0
+    with _history_lock:
+        history = _prune_history(_load_published_history(), now_ts)
+        for dataset in (
+            load_rss_seen(),
+            redis_get("nitter_seen", {}),
+            redis_get("telegram_rsshub_seen", {}),
+        ):
+            for cache_key, ts in _iter_seen_cache_items(dataset):
+                legacy_key = _legacy_history_key(cache_key)
+                if legacy_key in history:
+                    continue
+                history[legacy_key] = ts
+                added += 1
+        _persist_published_history(history)
+        redis_set(
+            PUBLISHED_HISTORY_MIGRATION_KEY,
+            {"done_at": now_ts, "added": added, "total": len(history)},
+            ex=PUBLISHED_HISTORY_TTL,
+        )
+    if added:
+        write_debug_log(f"HISTORY_MIGRATE | added={added} | total={get_published_history_size()}")
+    return added
+
 def _fetch_text_response(url: str, timeout: int = 12) -> requests.Response | None:
     try:
         return requests.get(
@@ -628,6 +684,7 @@ def is_bot_admin(user_id: int) -> bool:
 # ── FLASK ROUTES ──────────────────────────────────────────────────
 @app.route("/")
 def health():
+    migrate_legacy_seen_to_history()
     nitter_inst = redis_get("nitter_instance_cache", "—")
     if nitter_inst == "__none__":
         nitter_inst = "—"
@@ -756,6 +813,7 @@ def cmd_news_status(message):
     if not is_bot_admin(message.from_user.id):
         _reply(message, "❌ Только для администраторов")
         return
+    migrate_legacy_seen_to_history()
     seen       = load_rss_seen()
     nitter_seen = redis_get("nitter_seen", {})
     tg_seen    = redis_get("telegram_rsshub_seen", {})
@@ -869,7 +927,7 @@ def _check_news():
                     title_out = title if is_ru else translate_to_ru(title)
                     if not is_ru and not _is_russian(title_out):
                         continue
-                    history_keys = _make_history_keys(title_out, url, title)
+                    history_keys = _history_keys_for_item(cache_key, title_out, url, title)
                     if not reserve_history_keys(history_keys, now_ts):
                         new_seen[cache_key] = now_ts
                         continue
@@ -955,7 +1013,7 @@ def _check_rss_source(source: dict, seen: dict, now_ts: int) -> tuple:
             if not is_ru and not _is_russian(title_out):
                 write_debug_log(f"RSS | {source['name']} | SKIP: {title[:60]}")
                 continue
-            history_keys = _make_history_keys(title_out, url, title)
+            history_keys = _history_keys_for_item(cache_key, title_out, url, title)
             if not reserve_history_keys(history_keys, now_ts):
                 new_seen[cache_key] = now_ts
                 continue
@@ -1044,7 +1102,7 @@ def _check_nitter_all():
                             new_seen[cache_key] = now_ts
                             continue
                         tw_link = re.sub(rf"https?://{re.escape(inst)}", "https://twitter.com", link)
-                        history_keys = _make_history_keys(text_out[:400], tw_link or link, text_clean[:400])
+                        history_keys = _history_keys_for_item(cache_key, text_out[:400], tw_link or link, text_clean[:400])
                         if not reserve_history_keys(history_keys, now_ts):
                             new_seen[cache_key] = now_ts
                             continue
@@ -1126,7 +1184,7 @@ def _check_telegram_rsshub():
                         if not is_ru and not _is_russian(text_out):
                             new_seen[cache_key] = now_ts
                             continue
-                        history_keys = _make_history_keys(text_out[:400], link, text[:400])
+                        history_keys = _history_keys_for_item(cache_key, text_out[:400], link, text[:400])
                         if not reserve_history_keys(history_keys, now_ts):
                             new_seen[cache_key] = now_ts
                             continue
@@ -1181,6 +1239,7 @@ def _scheduler():
         time.sleep(60)
 
 # ── ЗАПУСК ────────────────────────────────────────────────────────
+migrate_legacy_seen_to_history()
 threading.Thread(target=_scheduler, daemon=True).start()
 threading.Thread(target=lambda: (time.sleep(10), _do_register_webhook()), daemon=True).start()
 
