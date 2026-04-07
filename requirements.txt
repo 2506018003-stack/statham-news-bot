@@ -7,5 +7,3 @@ gunicorn==23.0.0
 psutil==6.0.0
 tweepy==4.14.0
 python-dotenv==1.0.1
-redis==5.0.1
-upstash-redis==0.14.0
