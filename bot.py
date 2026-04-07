@@ -496,7 +496,6 @@ def clear_published_history():
     with _history_lock:
         _published_history_cache = {}
         redis_delete(PUBLISHED_HISTORY_KEY)
-
 def _fetch_text_response(url: str, timeout: int = 12) -> requests.Response | None:
     try:
         return requests.get(
