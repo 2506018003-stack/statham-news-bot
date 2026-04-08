@@ -358,6 +358,9 @@ RSS_SOURCES = [
     {"name": "Nasdaq Markets", "url": "https://www.nasdaq.com/feed/rssoutbound?category=Markets", "flag": "📈"},
     {"name": "Nasdaq Stocks",  "url": "https://www.nasdaq.com/feed/rssoutbound?category=Stocks", "flag": "🏢"},
     {"name": "Nasdaq AI",      "url": "https://www.nasdaq.com/feed/rssoutbound?category=Artificial%20Intelligence", "flag": "🧠"},
+    {"name": "Sky News",       "url": "https://news.sky.com/rss",                           "flag": "🌤️"},
+    {"name": "Binance Ann",    "url": "https://rsshub.app/binance/announcement",              "flag": "🅱️"},
+    {"name": "InCrypted",      "url": "https://incrypted.com/en/news/feed/",                "flag": "🔐"},
     # Reuters — напрямую блокируют feedparser, используем через RSSHub
     {"name": "Reuters Biz",    "url": "https://rsshub.app/reuters/businessNews",             "flag": "🗞️"},
     {"name": "Reuters Mkts",   "url": "https://rsshub.app/reuters/marketsNews",              "flag": "📈"},
