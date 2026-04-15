@@ -233,6 +233,15 @@ NITTER_ACCOUNTS = [
     {"name": "Trump",           "username": "realDonaldTrump",  "flag": "🇺🇸"},
     {"name": "Elon Musk",       "username": "elonmusk",         "flag": "🚀"},
     {"name": "Federal Reserve", "username": "federalreserve",   "flag": "🏦"},
+    # 🐋 Киты и ончейн-аналитика
+    {"name": "Lookonchain",     "username": "lookonchain",      "flag": "🐋"},
+    {"name": "Arkham",          "username": "arkham",           "flag": "🔍"},
+    {"name": "Spot On Chain",   "username": "spotonchain",      "flag": "📈"},
+    {"name": "CryptoQuant",     "username": "cryptoquant_com",  "flag": "📊"},
+    {"name": "AI姨",           "username": "ai_woowow",        "flag": "🤖"},
+    {"name": "Mignolet",        "username": "mignoleteth",      "flag": "💰"},
+    {"name": "Whale Chart",     "username": "whalechart",       "flag": "📉"},
+    {"name": "Onchain Lens",    "username": "onchainlens",      "flag": "🔎"},
 ]
 
 _nitter_rss_lock = threading.Lock()
@@ -273,6 +282,7 @@ TELEGRAM_RSS_CHANNELS = [
     # {"name": "Durov",       "username": "durov",       "flag": "✈️"},
     # {"name": "Cbonds News", "username": "cbondsnews",  "flag": "📈"},
     # {"name": "RBK Крипто",  "username": "rbc_crypto",  "flag": "💹"},
+    {"name": "Crypto HD",   "username": "crypto_hd",   "flag": "💰"},
 ]
 
 # RSSHub публичный инстанс (можно заменить на self-hosted):
@@ -336,6 +346,75 @@ RSS_KEYWORDS = [
     "председатель","пауэлл","fomc","комитет",
     "стартап","founder","создатель",
     "polymarket","прогноз","вероятность","шанс",
+    # 🐋 Киты и ончейн-аналитика
+    "whale","кит","киты","китов","onchain","ончейн",
+    "transaction","транзакция","перевод","transfer",
+    "wallet","кошелек","address","адрес","hold","holding",
+    "accumulation","аккумуляция","accumulate","distribution",
+    "liquidity flow","поток ликвидности","exchange flow",
+    "inflow","outflow","отток","приток","netflow",
+    "long position","short position","позиция","позиции",
+    "liquidation","ликвидация","ликвидирован","pnl"," unrealized",
+    "profit","прибыль","loss","убыток","realized","isolated",
+    "margin","маржа","плечо","leverage","cross margin",
+    "funding rate","фандинг","open interest","oi",
+    "overheated","перегрет","bearish","bullish","медвежий","бычий",
+    "sop","mvrv","nupl","supply","оборот","circulating",
+    "hodl","hodler","долгосрочник","ltvh","стк",
+    "mining","майнинг","miner","майнер","hashrate","хешрейт",
+    "difficulty","сложность","block reward","награда за блок",
+    "exchange reserve","биржевые резервы","reserve","резервы",
+    "balance","баланс","cohort","когорта","entity","сущность",
+    # 📈 Фондовый рынок и акции
+    "stock","акция","акции","share","shares","equity",
+    "market cap","рыночная капитализация","capitalization",
+    "trading volume","объем торгов","turnover","оборот",
+    "bull market","бычий рынок","bear market","медвежий рынок",
+    "bull run","bullrun","ралли","rally","correction","коррекция",
+    "crash","крах","падение","decline","surge","всплеск","взлет",
+    "soar","shoot up","jump","скачок","plunge","обвал","dip","просадка",
+    "rebound","отскок","recovery","восстановление","bounce","бонс",
+    "support","поддержка","resistance","сопротивление","level","уровень",
+    "breakout","прорыв","breakdown","пробой","all time high","ath",
+    "record high","исторический максимум","all time low","atl",
+    "blue chip","блю чип","large cap","mid cap","small cap",
+    "growth stock","growth stocks","value stock","value stocks",
+    "dividend yield","дивидендная доходность","buyback","выкуп акций",
+    "earnings","отчетность","revenue","выручка","profit margin","маржа",
+    "eps","earnings per share","прибыль на акцию","pe ratio","p/e",
+    "forward pe","trailing pe","pb ratio","price to book","ps ratio",
+    "sector","сектор","industry","отрасль","industrial","промышленность",
+    "technology","технологии","healthcare","здравоохранение","financial","финансовый",
+    "energy","энергетика","utilities","коммунальные","consumer","потребительский",
+    "materials","материалы","real estate","недвижимость","telecom","телеком",
+    "transportation","транспорт","aerospace","авиакосмический","defense","оборонный",
+    "semiconductor","полупроводники","chip","чип","ai chip","ai чип",
+    # 🏦 Банки и Центробанки
+    "central bank","центробанк","treasury","казначейство","fed chair",
+    "interest rate decision","решение по ставке","rate hike","повышение ставки",
+    "rate cut","снижение ставки","hold rate","сохранение ставки",
+    "hawkish","ястребиный","dovish","голубиный","neutral","нейтральный",
+    "forward guidance","прогноз","economic outlook","экономический прогноз",
+    "beige book","бежевая книга","minutes","протокол","meeting","заседание",
+    "press conference","пресс-конференция","speech","выступление",
+    "quantitative easing","qe","quantitative tightening","qt",
+    "balance sheet","баланс","assets","активы","bond purchase","покупка облигаций",
+    # 🌍 Геополитика и макро
+    "trade war","торговая война","tariff","tariffs","пошлина","пошлины",
+    "sanction","санкция","sanctions","санкции","embargo","эмбарго",
+    "trade deal","торговое соглашение","agreement","соглашение",
+    "supply chain","цепочка поставок","shortage","дефицит","disruption","срыв",
+    "inflation rate","темп инфляции","cpi","consumer price index","ипц",
+    "ppi","producer price index","производитель","deflation","дефляция",
+    "stagflation","стагфляция","hyperinflation","гиперинфляция",
+    "gdp growth","рост ввп","recession","рецессия","depression","депрессия",
+    "unemployment","безработица","employment","занятость","jobs","рабочие места",
+    "nonfarm payrolls","nfp","payrolls"," payroll","зарплата",
+    "retail sales","розничные продажи","consumer spending","потребительские расходы",
+    "industrial production","промышленное производство","factory orders","заказы",
+    "pmi","ism","manufacturing","производство","services","услуги",
+    "housing","жилье","home sales","продажи домов","mortgage","ипотека",
+    "auto sales","продажи автомобилей","consumer confidence","потребительское доверие",
 ]
 
 # ── RSS ИСТОЧНИКИ ─────────────────────────────────────────────────
@@ -364,6 +443,34 @@ RSS_SOURCES = [
     # Reuters — напрямую блокируют feedparser, используем через RSSHub
     {"name": "Reuters Biz",    "url": "https://rsshub.app/reuters/businessNews",             "flag": "🗞️"},
     {"name": "Reuters Mkts",   "url": "https://rsshub.app/reuters/marketsNews",              "flag": "📈"},
+    # 📊 Финансовые и фондовые рынки
+    {"name": "Yahoo Finance",  "url": "https://finance.yahoo.com/news/rssindex",               "flag": "💹"},
+    {"name": "MarketWatch",    "url": "https://www.marketwatch.com/rss/topstories",            "flag": "📰"},
+    {"name": "Investing.com",  "url": "https://www.investing.com/rss/news.rss",                "flag": "📊"},
+    {"name": "Bloomberg",      "url": "https://rsshub.app/bloomberg/latest",                  "flag": "💼"},
+    {"name": "Seeking Alpha",  "url": "https://rsshub.app/seekingalpha/just-purchased",       "flag": "🎯"},
+    {"name": "StockTwits",     "url": "https://rsshub.app/stocktwits/trending",               "flag": "📈"},
+    {"name": "Benzinga",      "url": "https://rsshub.app/benzinga/news",                     "flag": "⚡"},
+    {"name": "CNN Business",   "url": "https://rsshub.app/cnn/business",                      "flag": "📺"},
+    {"name": "BBC Business",   "url": "https://feeds.bbci.co.uk/news/business/rss.xml",       "flag": "📻"},
+    {"name": "CNBC",          "url": "https://rsshub.app/cnbc/rss",                         "flag": "📡"},
+    {"name": "WSJ Markets",    "url": "https://rsshub.app/wsj/markets",                       "flag": "📰"},
+    {"name": "MarketScreener", "url": "https://rsshub.app/marketscreener/headlines",         "flag": "🔍"},
+    # 🏦 Криптобиржи и сервисы
+    {"name": "Bybit Ann",      "url": "https://rsshub.app/bybit/announcement",                "flag": "🏦"},
+    {"name": "OKX Ann",        "url": "https://rsshub.app/okx/announcement",                  "flag": "🅾️"},
+    {"name": "Gate.io Ann",    "url": "https://rsshub.app/gateio/announcement",               "flag": "🚪"},
+    {"name": "MEXC Ann",       "url": "https://rsshub.app/mexc/announcement",                 "flag": "Ⓜ️"},
+    {"name": "Bitget Ann",     "url": "https://rsshub.app/bitget/announcement",               "flag": "🅱️"},
+    # 🌍 Мировые рынки и экономика
+    {"name": "Trading Econ",   "url": "https://rsshub.app/tradingeconomics/news",             "flag": "🌐"},
+    {"name": "FXStreet",      "url": "https://rsshub.app/fxstreet/news",                    "flag": "💱"},
+    {"name": "DailyFX",       "url": "https://rsshub.app/dailyfx/news",                     "flag": "📉"},
+    {"name": "Forexlive",     "url": "https://rsshub.app/forexlive/news",                   "flag": "💹"},
+    # 🤖 AI и технологии
+    {"name": "AI News",       "url": "https://rsshub.app/artificial-intelligence/news",     "flag": "🤖"},
+    {"name": "OpenAI Blog",   "url": "https://rsshub.app/openai/blog",                      "flag": "🧠"},
+    {"name": "Anthropic",     "url": "https://rsshub.app/anthropic/blog",                   "flag": "📝"},
 ]
 
 # ── GOOGLE TRANSLATE ─────────────────────────────────────────────
@@ -632,6 +739,110 @@ def send_tg(text: str, chat_id=None, thread_id=None) -> dict:
 
 def send_news(text: str) -> dict:
     return send_tg(text, thread_id=NEWS_TOPIC_ID)
+
+def send_news_photo(photo_url: str, caption: str, chat_id=None, thread_id=None) -> dict:
+    """Отправляет фото с подписью в новостной топик."""
+    if chat_id is None:
+        chat_id = CHAT_ID
+    if thread_id is None:
+        thread_id = NEWS_TOPIC_ID
+    payload: dict = {
+        "chat_id": chat_id,
+        "photo": photo_url,
+        "caption": caption,
+        "parse_mode": "HTML"
+    }
+    if thread_id is not None:
+        try:
+            payload["message_thread_id"] = int(thread_id)
+        except (ValueError, TypeError):
+            pass
+    try:
+        resp = requests.post(
+            f"https://api.telegram.org/bot{TOKEN}/sendPhoto",
+            json=payload,
+            timeout=15.0
+        )
+        data = resp.json()
+        if not data.get("ok"):
+            # Если не удалось отправить фото (например, URL недоступен), отправляем текст
+            write_debug_log(f"PHOTO_SEND_ERR | {data.get('description')} | url={photo_url[:60]}")
+            return send_tg(caption, chat_id, thread_id)
+        return data["result"]
+    except Exception as e:
+        write_debug_log(f"PHOTO_SEND_EXCEPTION | {e} | url={photo_url[:60]}")
+        return send_tg(caption, chat_id, thread_id)
+
+# ── MEDIA HELPERS ─────────────────────────────────────────────────
+def _extract_image_from_entry(entry) -> str | None:
+    """Извлекает URL картинки из RSS entry."""
+    try:
+        # Пробуем media_content (стандарт RSS для медиа)
+        media_content = entry.get("media_content", [])
+        if media_content:
+            for media in media_content:
+                if isinstance(media, dict):
+                    url = media.get("url") or media.get("href")
+                    if url:
+                        return url
+        # Пробуем media_thumbnail
+        media_thumbnail = entry.get("media_thumbnail", [])
+        if media_thumbnail:
+            for thumb in media_thumbnail:
+                if isinstance(thumb, dict):
+                    url = thumb.get("url") or thumb.get("href")
+                    if url:
+                        return url
+        # Пробуем enclosures
+        links = entry.get("links", [])
+        for link in links:
+            if isinstance(link, dict):
+                if link.get("rel") == "enclosure" and link.get("type", "").startswith("image"):
+                    return link.get("href")
+        # Пробуем из summary/description (HTML img теги)
+        summary = entry.get("summary", "")
+        if not summary:
+            summary = entry.get("description", "")
+        if summary:
+            img_match = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', summary, re.IGNORECASE)
+            if img_match:
+                url = img_match.group(1)
+                # Преобразуем относительные URL в абсолютные
+                if url.startswith("//"):
+                    url = "https:" + url
+                return url
+    except Exception as e:
+        write_debug_log(f"EXTRACT_IMAGE_ERR | {e}")
+    return None
+
+def _extract_images_from_nitter_entry(entry) -> list[str]:
+    """Извлекает URL картинок из Nitter RSS entry (Twitter)."""
+    images = []
+    try:
+        # В Nitter картинки обычно в summary как HTML img теги
+        summary = entry.get("summary", "")
+        if summary:
+            # Ищем все img теги
+            img_matches = re.findall(r'<img[^>]+src=["\']([^"\']+)["\']', summary, re.IGNORECASE)
+            for url in img_matches:
+                if url and not url.startswith("data:"):
+                    # Преобразуем относительные URL
+                    if url.startswith("//"):
+                        url = "https:" + url
+                    # Фильтруем иконки и мелкие изображения
+                    if any(x in url.lower() for x in ["icon", "emoji", "logo", "avatar", "profile"]):
+                        continue
+                    images.append(url)
+        # Также проверяем media_content
+        media_content = entry.get("media_content", [])
+        for media in media_content:
+            if isinstance(media, dict):
+                url = media.get("url") or media.get("href")
+                if url and url not in images:
+                    images.append(url)
+    except Exception as e:
+        write_debug_log(f"EXTRACT_NITTER_IMAGES_ERR | {e}")
+    return images
 
 # ── WEBHOOK SETUP ─────────────────────────────────────────────────
 _webhook_ok = False
@@ -948,22 +1159,15 @@ def _check_news():
                     if not reserve_history_keys(history_keys, now_ts):
                         new_seen[cache_key] = now_ts
                         continue
-                    flag = "🇷🇺" if is_ru else "🌍"
-                    meta = []
-                    if pub_str:
-                        meta.append(f"🕐 {pub_str}")
-                    src = source or domain
-                    if src:
-                        meta.append(f"📡 {_escape_html(src)}")
-                    if panic and panic >= 60:
-                        meta.append(f"🔥 Panic: {panic}")
-                    parts = [f"📰 {flag} <b>Крипто-новость</b>"]
-                    if meta:
-                        parts.append("  |  ".join(meta))
-                    parts.append("")
-                    parts.append(f"<b>{_escape_html(title_out)}</b>")
+                    # Только текст + перевод, без мета-информации об источнике
+                    parts = []
                     if not is_ru and title_out != title:
+                        # Перевод + оригинал
+                        parts.append(f"<b>{_escape_html(title_out)}</b>")
                         parts.append(f"<i>{_escape_html(title)}</i>")
+                    else:
+                        # Только текст
+                        parts.append(f"<b>{_escape_html(title_out)}</b>")
                     send_news("\n".join(parts))
                     new_seen[cache_key] = now_ts
                     sent_count += 1
@@ -1006,18 +1210,20 @@ def _fetch_rss_items(url: str, name: str) -> list:
 def _check_rss_source(source: dict, seen: dict, now_ts: int) -> tuple:
     new_seen   = dict(seen)
     sent_count = 0
-    items = _fetch_rss_items(source["url"], source["name"])
-    if not items:
-        write_debug_log(f"RSS | {source['name']} | sent=0 (no items)")
+    # Получаем feed целиком для доступа к entry с медиа
+    feed = _parse_feed_url(source["url"], source["name"])
+    if not feed or not getattr(feed, "entries", None):
+        write_debug_log(f"RSS | {source['name']} | sent=0 (no feed)")
         return new_seen, 0
-    for item in items[:30]:
+    entries = feed.entries[:30]
+    for entry in entries:
         if sent_count >= RSS_MAX_PER_RUN:
             break
-        title   = (item.get("title") or "").strip()
+        title   = (entry.get("title") or "").strip()
         if not title:
             continue
-        url     = (item.get("link") or "").strip()
-        pub_str = (item.get("pubDate") or "")[:16]
+        url     = (entry.get("link") or "").strip()
+        pub_str = (entry.get("published") or entry.get("updated", ""))[:16]
         cache_key = url or hashlib.md5(title.encode()).hexdigest()
         if cache_key in new_seen:
             continue
@@ -1034,14 +1240,23 @@ def _check_rss_source(source: dict, seen: dict, now_ts: int) -> tuple:
             if not reserve_history_keys(history_keys, now_ts):
                 new_seen[cache_key] = now_ts
                 continue
-            parts = [f"📰 <b>{source['flag']} {source['name']}</b>"]
-            if pub_str:
-                parts.append(f"🕐 {pub_str}")
-            parts.append("")
-            parts.append(f"<b>{_escape_html(title_out)}</b>")
+            # Формируем текст сообщения (только контент, без источника)
+            parts = []
             if not is_ru and title_out != title:
+                # Перевод + оригинал
+                parts.append(f"<b>{_escape_html(title_out)}</b>")
                 parts.append(f"<i>{_escape_html(title)}</i>")
-            send_news("\n".join(parts))
+            else:
+                # Только текст (русский или оригинал)
+                parts.append(f"<b>{_escape_html(title_out)}</b>")
+            caption = "\n".join(parts)
+            # Пробуем извлечь и отправить с фото
+            image_url = _extract_image_from_entry(entry)
+            if image_url:
+                send_news_photo(image_url, caption)
+                write_debug_log(f"RSS | {source['name']} | sent with photo")
+            else:
+                send_news(caption)
             new_seen[cache_key] = now_ts
             sent_count += 1
             time.sleep(3)
@@ -1123,14 +1338,24 @@ def _check_nitter_all():
                         if not reserve_history_keys(history_keys, now_ts):
                             new_seen[cache_key] = now_ts
                             continue
-                        parts = [f"🐦 <b>{flag} {_escape_html(name)} (@{_escape_html(username)})</b>"]
-                        if pub_str:
-                            parts.append(f"🕐 {pub_str}")
-                        parts.append("")
-                        parts.append(f"<b>{_escape_html(text_out[:400])}</b>")
+                        # Только текст + перевод, без ссылки на Twitter аккаунт
+                        parts = []
                         if not is_ru and text_out != text_clean:
+                            # Перевод + оригинал
+                            parts.append(f"<b>{_escape_html(text_out[:400])}</b>")
                             parts.append(f"<i>{_escape_html(text_clean[:200])}</i>")
-                        send_news("\n".join(parts))
+                        else:
+                            # Только текст
+                            parts.append(f"<b>{_escape_html(text_out[:400])}</b>")
+                        caption = "\n".join(parts)
+                        # Извлекаем картинки из твита
+                        images = _extract_images_from_nitter_entry(entry)
+                        if images:
+                            # Отправляем с первой картинкой
+                            send_news_photo(images[0], caption)
+                            write_debug_log(f"NITTER | @{username} | sent with photo ({len(images)} images)")
+                        else:
+                            send_news(caption)
                         new_seen[cache_key] = now_ts
                         sent_count += 1
                         total_sent += 1
@@ -1205,14 +1430,22 @@ def _check_telegram_rsshub():
                         if not reserve_history_keys(history_keys, now_ts):
                             new_seen[cache_key] = now_ts
                             continue
-                        parts = [f"{flag} <b>Telegram / {_escape_html(name)}</b>"]
-                        if pub_str:
-                            parts.append(f"🕐 {pub_str}")
-                        parts.append("")
-                        parts.append(f"<b>{_escape_html(text_out[:400])}</b>")
+                        # Только текст + перевод, без ссылки на источник
+                        parts = []
                         if not is_ru and text_out != text:
+                            # Перевод на русском + оригинал мелким
+                            parts.append(f"<b>{_escape_html(text_out[:400])}</b>")
                             parts.append(f"<i>{_escape_html(text[:200])}</i>")
-                        send_news("\n".join(parts))
+                        else:
+                            # Только текст (уже на русском или оригинал)
+                            parts.append(f"<b>{_escape_html(text_out[:400])}</b>")
+                        caption = "\n".join(parts)
+                        # Извлекаем медиа из Telegram RSS
+                        image_url = _extract_image_from_entry(entry)
+                        if image_url:
+                            send_news_photo(image_url, caption)
+                        else:
+                            send_news(caption)
                         new_seen[cache_key] = now_ts
                         sent_count += 1
                         total_sent += 1
