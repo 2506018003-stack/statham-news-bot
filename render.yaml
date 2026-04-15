@@ -6,17 +6,25 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn bot:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120
     envVars:
+      # 🔑 Основные настройки бота
       - key: BOT_TOKEN_NEWS
         sync: false
       - key: CHAT_ID
         value: "-1003867089540"
       - key: NEWS_TOPIC_ID
         value: "9505"
+      # 🔑 CryptoPanic API (опционально)
       - key: CRYPTOPANIC_TOKEN
         sync: false
+      # 🗄️ Redis для кэша (опционально, но рекомендуется)
       - key: UPSTASH_REDIS_REST_URL
         sync: false
       - key: UPSTASH_REDIS_REST_TOKEN
         sync: false
+      # 🐍 Версия Python
       - key: PYTHON_VERSION
         value: "3.11"
+    # 📰 Источники новостей (заполняются в bot.py):
+    # RSS: 35+ источников (CoinDesk, Nasdaq, Bloomberg, Yahoo Finance, и др.)
+    # Nitter: 14 Twitter-аккаунтов (Wu Blockchain, Whale Alert, Lookonchain, Arkham, и др.)
+    # Telegram: RSSHub для публичных каналов
